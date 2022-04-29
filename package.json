@@ -1,5 +1,6 @@
 {
   "name": "whatapp-api",
+  "type": "module",
   "version": "1.0.0",
   "description": "whatapp api RSKG",
   "main": "app.js",
@@ -15,6 +16,7 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.0",
+    "express-validator": "^6.14.0",
     "qrcode": "^1.5.0",
     "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.5.0",

@@ -32,6 +32,7 @@
 
         socket.on('message', function (data) {
           $('.logs').append('<p>' + data + '</p>')
+          console.log(data)
         })
         socket.on('qr', function (data) {
           $('#qrcode').attr('src', data)

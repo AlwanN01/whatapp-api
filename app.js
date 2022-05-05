@@ -1,19 +1,27 @@
 import wa from 'whatsapp-web.js'
 import express, { json, urlencoded } from 'express'
+import { body, validationResult } from 'express-validator'
 import { Server } from 'socket.io'
 import { toDataURL } from 'qrcode'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
+import { phoneFormat } from './whatsHelper/formatter.js'
+import cors from 'cors'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const { Client, LocalAuth } = wa
 const app = express()
+app.use(cors())
+
 const httpServer = app.listen(8000, () => {
   console.log('Server is running on port 8000')
 })
-const io = new Server(httpServer)
-
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+  },
+})
 app.use(json())
 app.use(urlencoded({ extended: true }))
 
@@ -22,8 +30,20 @@ app.get('/', (req, res) => {
 })
 
 const client = new Client({
-  puppeteer: { headless: true },
-  authStrategy: new LocalAuth()
+  puppeteer: {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process', // <- this one doesn't work in windows
+    ],
+  },
+  authStrategy: new LocalAuth(),
 }) //headless: false = open web whatsapp in background
 
 client.on('message', async msg => {
@@ -52,7 +72,7 @@ client.on('message', async msg => {
     `
     )
   } else {
-    msg.reply('Tong Ganggu, Gandeng!.')
+    msg.reply('Wait a second')
   }
 })
 client.on('change_state', state => {
@@ -80,26 +100,47 @@ io.on('connection', socket => {
     socket.emit('authenticated', 'WhatsApp API is Authenticated')
     socket.emit('message', 'WhatsApp API is Authenticated')
   })
-  client.on('message', msg => {
-    socket.emit('message', msg)
+  client.on('auth_failure', () => {
+    socket.emit('message', 'Authentication failed')
+  })
+  client.on('disconnected', () => {
+    socket.emit('message', 'WhatsApp API is Disconnected')
+    client.destroy()
+    client.initialize()
+  })
+  client.on('error', err => {
+    socket.emit('error', err)
+    socket.emit('message', 'Error: ' + err)
   })
 })
-app.post('/send', (req, res) => {
-  const number = req.body.number
+const checkRegisteredNumber = async number => {
+  const isRegistered = await client.isRegisteredUser(number)
+  return isRegistered
+}
+//send message
+app.post('/send-message', [body('number').notEmpty(), body('message').notEmpty()], async (req, res) => {
+  const errors = validationResult(req).formatWith(({ msg }) => msg)
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ status: false, errors: errors.mapped() })
+  }
+  const number = phoneFormat(req.body.number)
   const message = req.body.message
+  const isRegisteredNumber = await checkRegisteredNumber(number)
+  if (!isRegisteredNumber) {
+    return res.status(422).json({ status: false, errors: { number: 'Number not registered' } })
+  }
   client
     .sendMessage(number, message)
     .then(response => {
       res.status(200).json({
         status: true,
-        response
+        response,
       })
     })
     .catch(err => {
       res.status(500).json({
         status: false,
-        response: err
+        response: err,
       })
     })
 })
-httpServer
